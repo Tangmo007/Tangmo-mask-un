@@ -1,7 +1,132 @@
-<div>Teachable Machine Image Model</div>
-<button type="button" onclick="init()">Start</button>
-<div id="webcam-container"></div>
-<div id="label-container"></div>
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teachable Machine Image Model (3s Interval)</title>
+    <!-- เพิ่ม Font เพื่อความสวยงาม -->
+    <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary-color: #4F46E5;
+            --secondary-color: #f3f4f6;
+            --text-color: #1f2937;
+            --success-color: #10b981;
+            --border-radius: 12px;
+        }
+
+        body {
+            font-family: 'Prompt', sans-serif;
+            background-color: var(--secondary-color);
+            color: var(--text-color);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container {
+            background-color: #ffffff;
+            padding: 40px;
+            border-radius: var(--border-radius);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.05);
+            text-align: center;
+            width: 100%;
+            max-width: 600px;
+        }
+
+        h1 {
+            font-weight: 600;
+            font-size: 2rem;
+            margin-bottom: 30px;
+            color: var(--primary-color);
+        }
+
+        button {
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            border-radius: var(--border-radius);
+            cursor: pointer;
+            transition: background-color 0.3s ease, transform 0.1s ease;
+            font-family: 'Prompt', sans-serif;
+        }
+
+        button:hover {
+            background-color: #4338CA;
+        }
+
+        button:active {
+            transform: scale(0.98);
+        }
+
+        #webcam-container {
+            margin-top: 30px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+            border-radius: var(--border-radius);
+            border: 4px solid var(--primary-color);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+        }
+
+        canvas {
+            width: 100%;
+            max-width: 400px;
+            height: auto;
+            border-radius: calc(var(--border-radius) - 4px);
+        }
+
+        #label-container {
+            margin-top: 30px;
+            display: grid;
+            gap: 15px;
+        }
+
+        .label-row {
+            background-color: #f9fafb;
+            padding: 15px;
+            border-radius: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border: 1px solid #e5e7eb;
+        }
+
+        .label-name {
+            font-weight: 600;
+            font-size: 1rem;
+        }
+
+        .label-probability {
+            font-weight: 300;
+            color: var(--success-color);
+        }
+
+        #timer {
+            margin-top: 20px;
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: #ef4444;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Teachable Machine Image Model</h1>
+    <button type="button" onclick="init()">Start Camera</button>
+    <div id="webcam-container"></div>
+    <div id="timer"></div>
+    <div id="label-container"></div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
 <script type="text/javascript">
@@ -12,6 +137,7 @@
     const URL = "https://teachablemachine.withgoogle.com/models/CsEy59Ug_/";
 
     let model, webcam, labelContainer, maxPredictions;
+    let timerInterval;
 
     // Load the image model and setup the webcam
     async function init() {
@@ -27,23 +153,58 @@
 
         // Convenience function to setup a webcam
         const flip = true; // whether to flip the webcam
-        webcam = new tmImage.Webcam(200, 200, flip); // width, height, flip
+        webcam = new tmImage.Webcam(400, 400, flip); // width, height, flip
         await webcam.setup(); // request access to the webcam
         await webcam.play();
-        window.requestAnimationFrame(loop);
+        
+        // เราจะไม่ใช้ loop เพื่อทำนายทุกเฟรม แต่จะใช้ setInterval
+        // window.requestAnimationFrame(loop);
 
         // append elements to the DOM
         document.getElementById("webcam-container").appendChild(webcam.canvas);
         labelContainer = document.getElementById("label-container");
         for (let i = 0; i < maxPredictions; i++) { // and class labels
-            labelContainer.appendChild(document.createElement("div"));
+            const labelRow = document.createElement("div");
+            labelRow.className = "label-row";
+            const labelName = document.createElement("span");
+            labelName.className = "label-name";
+            const labelProbability = document.createElement("span");
+            labelProbability.className = "label-probability";
+            labelRow.appendChild(labelName);
+            labelRow.appendChild(labelProbability);
+            labelContainer.appendChild(labelRow);
         }
+
+        // เริ่มต้น timer และการทำนายทุกๆ 3 วินาที
+        start3SecondInterval();
     }
 
-    async function loop() {
-        webcam.update(); // update the webcam frame
+    async function start3SecondInterval() {
+        // อัปเดตเฟรมกล้องทุกๆเฟรมเพื่อให้เห็นภาพเคลื่อนไหว
+        async function updateWebcam() {
+            webcam.update();
+            window.requestAnimationFrame(updateWebcam);
+        }
+        window.requestAnimationFrame(updateWebcam);
+
+        // ทำนายครั้งแรกทันที
         await predict();
-        window.requestAnimationFrame(loop);
+
+        // ตั้งเวลา 3 วินาที
+        let timeLeft = 3;
+        const timerElement = document.getElementById("timer");
+        timerElement.innerText = "Next prediction in: " + timeLeft + "s";
+
+        timerInterval = setInterval(async () => {
+            if (timeLeft === 0) {
+                // ทำนายเมื่อหมดเวลา
+                await predict();
+                timeLeft = 3; // Reset เวลา
+            } else {
+                timeLeft--;
+            }
+            timerElement.innerText = "Next prediction in: " + timeLeft + "s";
+        }, 1000);
     }
 
     // run the webcam image through the image model
@@ -51,9 +212,13 @@
         // predict can take in an image, video or canvas html element
         const prediction = await model.predict(webcam.canvas);
         for (let i = 0; i < maxPredictions; i++) {
-            const classPrediction =
-                prediction[i].className + ": " + prediction[i].probability.toFixed(2);
-            labelContainer.childNodes[i].innerHTML = classPrediction;
+            const labelName = labelContainer.childNodes[i].querySelector(".label-name");
+            const labelProbability = labelContainer.childNodes[i].querySelector(".label-probability");
+            
+            labelName.innerHTML = prediction[i].className;
+            labelProbability.innerHTML = (prediction[i].probability * 100).toFixed(2) + "%";
         }
     }
 </script>
+</body>
+</html>
