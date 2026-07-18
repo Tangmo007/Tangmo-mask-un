@@ -65,6 +65,11 @@
             transform: scale(0.98);
         }
 
+        button:disabled {
+            background-color: #9CA3AF;
+            cursor: not-allowed;
+        }
+
         #webcam-container {
             margin-top: 30px;
             display: flex;
@@ -74,6 +79,8 @@
             border-radius: var(--border-radius);
             border: 4px solid var(--primary-color);
             box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+            background-color: #000;
+            min-height: 200px;
         }
 
         canvas {
@@ -81,6 +88,7 @@
             max-width: 400px;
             height: auto;
             border-radius: calc(var(--border-radius) - 4px);
+            display: block;
         }
 
         #label-container {
@@ -105,7 +113,7 @@
         }
 
         .label-probability {
-            font-weight: 300;
+            font-weight: bold;
             color: var(--success-color);
         }
 
@@ -114,6 +122,7 @@
             font-size: 1.2rem;
             font-weight: 600;
             color: #ef4444;
+            min-height: 1.5em;
         }
     </style>
 </head>
@@ -121,7 +130,7 @@
 
 <div class="container">
     <h1>Teachable Machine Image Model</h1>
-    <button type="button" onclick="init()">Start Camera</button>
+    <button type="button" id="start-btn" onclick="init()">Start Camera</button>
     <div id="webcam-container"></div>
     <div id="timer"></div>
     <div id="label-container"></div>
@@ -130,93 +139,102 @@
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
 <script type="text/javascript">
-    // More API functions here:
-    // https://github.com/googlecreativelab/teachablemachine-community/tree/master/libraries/image
-
-    // the link to your model provided by Teachable Machine export panel
     const URL = "https://teachablemachine.withgoogle.com/models/CsEy59Ug_/";
 
     let model, webcam, labelContainer, maxPredictions;
     let timerInterval;
+    let isRunning = false;
 
-    // Load the image model and setup the webcam
     async function init() {
-        const modelURL = URL + "model.json";
-        const metadataURL = URL + "metadata.json";
-
-        // load the model and metadata
-        // Refer to tmImage.loadFromFiles() in the API to support files from a file picker
-        // or files from your local hard drive
-        // Note: the pose library adds "tmImage" object to your window (window.tmImage)
-        model = await tmImage.load(modelURL, metadataURL);
-        maxPredictions = model.getTotalClasses();
-
-        // Convenience function to setup a webcam
-        const flip = true; // whether to flip the webcam
-        webcam = new tmImage.Webcam(400, 400, flip); // width, height, flip
-        await webcam.setup(); // request access to the webcam
-        await webcam.play();
+        if (isRunning) return;
         
-        // เราจะไม่ใช้ loop เพื่อทำนายทุกเฟรม แต่จะใช้ setInterval
-        // window.requestAnimationFrame(loop);
+        const startBtn = document.getElementById("start-btn");
+        startBtn.disabled = true;
+        startBtn.innerText = "Loading...";
 
-        // append elements to the DOM
-        document.getElementById("webcam-container").appendChild(webcam.canvas);
-        labelContainer = document.getElementById("label-container");
-        for (let i = 0; i < maxPredictions; i++) { // and class labels
-            const labelRow = document.createElement("div");
-            labelRow.className = "label-row";
-            const labelName = document.createElement("span");
-            labelName.className = "label-name";
-            const labelProbability = document.createElement("span");
-            labelProbability.className = "label-probability";
-            labelRow.appendChild(labelName);
-            labelRow.appendChild(labelProbability);
-            labelContainer.appendChild(labelRow);
+        try {
+            const modelURL = URL + "model.json";
+            const metadataURL = URL + "metadata.json";
+
+            // 1. โหลดโมเดล AI
+            model = await tmImage.load(modelURL, metadataURL);
+            maxPredictions = model.getTotalClasses();
+
+            // 2. ตั้งค่าเว็บแคม (ปรับขนาดเป็น 200x200 ตามมาตรฐานต้นฉบับเพื่อความเสถียร)
+            const flip = true; 
+            webcam = new tmImage.Webcam(200, 200, flip); 
+            await webcam.setup(); // ขอสิทธิ์เข้าถึงกล้อง
+            await webcam.play();
+            
+            isRunning = true;
+            startBtn.style.display = "none"; // ซ่อนปุ่มเมื่อกล้องติดแล้ว
+
+            // 3. แสดงผลกล้องบนหน้าจอ
+            document.getElementById("webcam-container").appendChild(webcam.canvas);
+            
+            // 4. สร้างแถวแสดงผลคะแนน
+            labelContainer = document.getElementById("label-container");
+            labelContainer.innerHTML = ""; 
+            for (let i = 0; i < maxPredictions; i++) { 
+                const labelRow = document.createElement("div");
+                labelRow.className = "label-row";
+                labelRow.innerHTML = `<span class="label-name">-</span><span class="label-probability">0.00%</span>`;
+                labelContainer.appendChild(labelRow);
+            }
+
+            // 5. รัน Loop หลักเพื่อให้กล้องเคลื่อนไหวลื่นไหล
+            window.requestAnimationFrame(loop);
+
+            // 6. เริ่มระบบนับถอยหลังทำนายผลทุกๆ 3 วินาที
+            startIntervalPrediction();
+
+        } catch (error) {
+            console.error(error);
+            alert("ไม่สามารถเปิดกล้องได้ กรุณาตรวจสอบสิทธิ์การใช้งานกล้องในเบราว์เซอร์ของคุณ");
+            startBtn.disabled = false;
+            startBtn.innerText = "Start Camera";
         }
-
-        // เริ่มต้น timer และการทำนายทุกๆ 3 วินาที
-        start3SecondInterval();
     }
 
-    async function start3SecondInterval() {
-        // อัปเดตเฟรมกล้องทุกๆเฟรมเพื่อให้เห็นภาพเคลื่อนไหว
-        async function updateWebcam() {
-            webcam.update();
-            window.requestAnimationFrame(updateWebcam);
-        }
-        window.requestAnimationFrame(updateWebcam);
+    // ฟังก์ชันนี้จะรันตลอดเวลาเพื่ออัปเดตภาพจากกล้องให้เคลื่อนไหวลื่นไหล (Real-time)
+    async function loop() {
+        if (!isRunning) return;
+        webcam.update(); 
+        window.requestAnimationFrame(loop);
+    }
 
-        // ทำนายครั้งแรกทันที
-        await predict();
-
-        // ตั้งเวลา 3 วินาที
+    // ฟังก์ชันควบคุมการนับถอยหลัง 3 วินาที เพื่อสั่งให้ AI ทำนายผล
+    function startIntervalPrediction() {
         let timeLeft = 3;
         const timerElement = document.getElementById("timer");
-        timerElement.innerText = "Next prediction in: " + timeLeft + "s";
+        
+        // ทำนายรอบแรกทันทีที่เปิดกล้อง
+        predict();
+        timerElement.innerText = `Next prediction in: ${timeLeft}s`;
 
         timerInterval = setInterval(async () => {
-            if (timeLeft === 0) {
-                // ทำนายเมื่อหมดเวลา
-                await predict();
-                timeLeft = 3; // Reset เวลา
-            } else {
-                timeLeft--;
+            timeLeft--;
+            if (timeLeft <= 0) {
+                timerElement.innerText = "Predicting...";
+                await predict(); // เรียก AI มาทายภาพ ณ วินาทีนั้น
+                timeLeft = 3;    // รีเซ็ตเวลากลับไปที่ 3 วินาที
             }
-            timerElement.innerText = "Next prediction in: " + timeLeft + "s";
+            timerElement.innerText = `Next prediction in: ${timeLeft}s`;
         }, 1000);
     }
 
-    // run the webcam image through the image model
+    // สั่งให้ AI ประมวลผลภาพจากเว็บแคม
     async function predict() {
-        // predict can take in an image, video or canvas html element
+        if (!model || !webcam) return;
+        
         const prediction = await model.predict(webcam.canvas);
         for (let i = 0; i < maxPredictions; i++) {
-            const labelName = labelContainer.childNodes[i].querySelector(".label-name");
-            const labelProbability = labelContainer.childNodes[i].querySelector(".label-probability");
+            const classPrediction = prediction[i].className;
+            const probabilityPercentage = (prediction[i].probability * 100).toFixed(2) + "%";
             
-            labelName.innerHTML = prediction[i].className;
-            labelProbability.innerHTML = (prediction[i].probability * 100).toFixed(2) + "%";
+            const row = labelContainer.childNodes[i];
+            row.querySelector(".label-name").innerText = classPrediction;
+            row.querySelector(".label-probability").innerText = probabilityPercentage;
         }
     }
 </script>
